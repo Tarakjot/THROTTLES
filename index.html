@@ -1,0 +1,597 @@
+
+## Project structure
+
+```
+clothing-brand-website-full/
+├─ .github/workflows/ci.yml
+├─ .gitignore
+├─ package.json
+├─ next.config.js
+├─ postcss.config.cjs
+├─ tailwind.config.cjs
+├─ README.md
+├─ public/
+│  └─ images/
+│     ├─ p1.jpg
+│     ├─ p2.jpg
+│     └─ p3.jpg
+├─ prisma/ (optional seeds)
+│  └─ seed.js
+├─ src/
+│  ├─ pages/
+│  │   ├─ api/
+│  │   │   ├─ checkout_sessions.js
+│  │   │   └─ webhook.js
+│  │   ├─ _app.js
+│  │   ├─ index.js
+│  │   ├─ product/[id].js
+│  │   └─ success.js
+│  ├─ components/
+│  │   ├─ Layout.js
+│  │   ├─ ProductCard.js
+│  │   ├─ CartDrawer.js
+│  │   └─ Header.js
+│  ├─ data/
+│  │   └─ products.json
+│  └─ styles/
+│     └─ globals.css
+└─ .env.example
+```
+
+---
+
+### package.json
+
+```json
+{
+  "name": "clothing-brand-website-full",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "^13.4.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "stripe": "^12.0.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0"
+  }
+}
+```
+
+---
+
+### next.config.js
+
+```js
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  reactStrictMode: true,
+  images: {
+    domains: ['picsum.photos'],
+  },
+}
+
+module.exports = nextConfig
+```
+
+---
+
+### postcss.config.cjs
+
+```js
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+```
+
+---
+
+### tailwind.config.cjs
+
+```js
+module.exports = {
+  content: ['./src/**/*.{js,jsx}', './pages/**/*.{js,jsx}', './components/**/*.{js,jsx}'],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+```
+
+---
+
+### .gitignore
+
+```
+node_modules
+.next
+.env.local
+.env.*.local
+.DS_Store
+```
+
+---
+
+### .env.example
+
+```
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_XXXXXXXXXXXXXXXX
+STRIPE_SECRET_KEY=sk_test_XXXXXXXXXXXXXXXX
+STRIPE_WEBHOOK_SECRET=whsec_XXXXXXXXXXXXXXXX
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+---
+
+### src/data/products.json
+
+```json
+[
+  {
+    "id": "p1",
+    "name": "Classic Tee",
+    "slug": "classic-tee",
+    "price": 29.99,
+    "currency": "USD",
+    "image": "/images/p1.jpg",
+    "description": "Soft cotton tee with a relaxed fit. Available in S, M, L, XL.",
+    "tags": ["tee", "basics"],
+    "sizes": ["S","M","L","XL"]
+  },
+  {
+    "id": "p2",
+    "name": "Denim Jacket",
+    "slug": "denim-jacket",
+    "price": 89.99,
+    "currency": "USD",
+    "image": "/images/p2.jpg",
+    "description": "Vintage-inspired denim jacket with reinforced stitching.",
+    "tags": ["jacket","outerwear"],
+    "sizes": ["S","M","L","XL"]
+  },
+  {
+    "id": "p3",
+    "name": "Jogger Pants",
+    "slug": "jogger-pants",
+    "price": 49.99,
+    "currency": "USD",
+    "image": "/images/p3.jpg",
+    "description": "Comfort-fit joggers with elastic waist and cuff.",
+    "tags": ["pants","loungewear"],
+    "sizes": ["S","M","L","XL"]
+  }
+]
+```
+
+---
+
+### src/pages/_app.js
+
+```jsx
+import '@/styles/globals.css'
+import { useState } from 'react'
+import Layout from '../components/Layout'
+
+export default function MyApp({ Component, pageProps }){
+  const [cart, setCart] = useState([])
+
+  function addToCart(product, size){
+    setCart(prev=>{
+      const key = product.id + (size||'')
+      const found = prev.find(i=>i.key===key)
+      if(found) return prev.map(i=> i.key===key ? {...i, qty: i.qty+1} : i)
+      return [...prev, {key, id: product.id, name: product.name, price: product.price, size: size||null, qty:1, image: product.image}]
+    })
+  }
+
+  function removeFromCart(itemKey){
+    setCart(prev => prev.flatMap(i => i.key===itemKey ? (i.qty>1 ? [{...i, qty: i.qty-1}] : []) : [i]))
+  }
+
+  function clearCart(){ setCart([]) }
+
+  return (
+    <Layout cart={cart} removeFromCart={removeFromCart}>
+      <Component {...pageProps} cart={cart} addToCart={addToCart} clearCart={clearCart} />
+    </Layout>
+  )
+}
+```
+
+---
+
+### src/components/Layout.js
+
+```jsx
+import Head from 'next/head'
+import Header from './Header'
+import CartDrawer from './CartDrawer'
+import { useState } from 'react'
+
+export default function Layout({children, cart, removeFromCart}){
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <Head>
+        <title>Your Brand — Clothes</title>
+        <meta name="description" content="Shop stylish, sustainable clothing" />
+      </Head>
+      <Header onCart={()=>setOpen(true)} cartCount={cart.length} />
+      <main className="max-w-6xl mx-auto px-6 py-8">{children}</main>
+      <footer className="text-center py-6 text-sm text-gray-600">© {new Date().getFullYear()} Your Brand</footer>
+      <CartDrawer open={open} setOpen={setOpen} items={cart} onRemove={removeFromCart} />
+    </>
+  )
+}
+```
+
+---
+
+### src/components/Header.js
+
+```jsx
+import Link from 'next/link'
+
+export default function Header({onCart, cartCount}){
+  return (
+    <header className="bg-white border-b">
+      <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <Link href="/"><a className="text-2xl font-bold">Your Brand</a></Link>
+        <nav className="flex gap-6 items-center">
+          <Link href="/"><a className="text-sm">Shop</a></Link>
+          <a href="#" className="text-sm">Lookbook</a>
+          <a href="#" className="text-sm">About</a>
+          <button onClick={onCart} className="relative">
+            Cart
+            {cartCount>0 && <span className="ml-2 inline-block bg-black text-white px-2 py-0.5 text-xs rounded">{cartCount}</span>}
+          </button>
+        </nav>
+      </div>
+    </header>
+  )
+}
+```
+
+---
+
+### src/components/ProductCard.js
+
+```jsx
+import Link from 'next/link'
+
+export default function ProductCard({p, onAdd}){
+  return (
+    <div className="border rounded-lg overflow-hidden shadow-sm flex flex-col bg-white">
+      <img src={p.image} alt={p.name} className="w-full h-56 object-cover" />
+      <div className="p-4 flex-1 flex flex-col">
+        <h3 className="font-semibold text-lg">{p.name}</h3>
+        <p className="text-sm text-gray-600 mt-2 flex-1">{p.description}</p>
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-xl font-bold">${p.price.toFixed(2)}</div>
+          <div className="flex gap-2">
+            <Link href={`/product/${p.id}`}><a className="px-3 py-2 border rounded text-sm">View</a></Link>
+            <button onClick={()=>onAdd(p)} className="px-3 py-2 bg-black text-white rounded text-sm">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+---
+
+### src/components/CartDrawer.js
+
+```jsx
+export default function CartDrawer({open, setOpen, items, onRemove}){
+  const total = items.reduce((s,i)=> s + i.qty * i.price, 0)
+  if(!open) return null
+  return (
+    <div className="fixed inset-0 z-50">
+      <div className="absolute inset-0 bg-black opacity-30" onClick={()=>setOpen(false)} />
+      <aside className="absolute right-0 top-0 h-full w-96 bg-white shadow-lg p-6 overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold">Cart</h3>
+          <button onClick={()=>setOpen(false)}>Close</button>
+        </div>
+        {items.length===0 ? <p className="text-gray-600">Cart empty</p> : (
+          <div className="space-y-4">
+            {items.map(it=> (
+              <div key={it.key} className="flex items-center justify-between">
+                <div>
+                  <div className="font-medium">{it.name} {it.size ? ` — ${it.size}` : ''}</div>
+                  <div className="text-sm text-gray-600">{it.qty} × ${it.price.toFixed(2)}</div>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <button onClick={()=>onRemove(it.key)} className="text-sm px-2 py-1 border rounded">-</button>
+                </div>
+              </div>
+            ))}
+            <div className="pt-2 border-t">
+              <div className="flex items-center justify-between font-bold">Total <span>${total.toFixed(2)}</span></div>
+              <form action="/api/checkout_sessions" method="POST">
+                <input type="hidden" name="items" value={JSON.stringify(items)} />
+                <button type="submit" className="mt-3 w-full py-2 rounded bg-green-600 text-white">Checkout</button>
+              </form>
+            </div>
+          </div>
+        )}
+      </aside>
+    </div>
+  )
+}
+```
+
+---
+
+### src/pages/index.js
+
+```jsx
+import fs from 'fs'
+import path from 'path'
+import ProductCard from '../components/ProductCard'
+
+export default function Home({products}){
+  return (
+    <div>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Shop</h1>
+        <div className="text-sm text-gray-600">Free shipping over $75</div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {products.map(p=> <ProductCard key={p.id} p={p} onAdd={()=>{}} />)}
+      </div>
+    </div>
+  )
+}
+
+export async function getStaticProps(){
+  const file = path.join(process.cwd(), 'src', 'data', 'products.json')
+  const products = JSON.parse(fs.readFileSync(file,'utf8'))
+  return { props: { products } }
+}
+```
+
+---
+
+### src/pages/product/[id].js
+
+```jsx
+import fs from 'fs'
+import path from 'path'
+
+export default function ProductPage({product}){
+  if(!product) return <div>Not found</div>
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div>
+        <img src={product.image} alt={product.name} className="w-full h-[560px] object-cover rounded" />
+      </div>
+      <div>
+        <h1 className="text-2xl font-bold">{product.name}</h1>
+        <p className="text-xl font-bold mt-2">${product.price.toFixed(2)}</p>
+        <p className="mt-4 text-gray-700">{product.description}</p>
+        <div className="mt-4">
+          <label className="block text-sm">Size</label>
+          <select id="size" className="mt-2 border p-2 rounded w-48">
+            {product.sizes.map(s=> <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <form action="/api/checkout_sessions" method="POST" className="mt-6">
+          <input type="hidden" name="items" value={JSON.stringify([{id: product.id, name: product.name, qty:1, price: product.price, size: product.sizes[0]}])} />
+          <button type="submit" className="px-4 py-2 bg-black text-white rounded">Buy with Stripe</button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+export async function getStaticPaths(){
+  const file = path.join(process.cwd(), 'src', 'data', 'products.json')
+  const products = JSON.parse(fs.readFileSync(file,'utf8'))
+  return { paths: products.map(p=> ({ params: { id: p.id } })), fallback: false }
+}
+
+export async function getStaticProps({params}){
+  const file = path.join(process.cwd(), 'src', 'data', 'products.json')
+  const products = JSON.parse(fs.readFileSync(file,'utf8'))
+  const product = products.find(p=> p.id===params.id) || null
+  return { props: { product } }
+}
+```
+
+---
+
+### src/pages/success.js
+
+```jsx
+export default function Success(){
+  return (
+    <div className="text-center py-20">
+      <h1 className="text-3xl font-bold">Thank you — order received!</h1>
+      <p className="mt-4">We sent you a receipt by email (demo)</p>
+    </div>
+  )
+}
+```
+
+---
+
+### src/pages/api/checkout_sessions.js
+
+```js
+import Stripe from 'stripe'
+import { buffer } from 'micro'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+
+export default async function handler(req, res){
+  if(req.method !== 'POST') return res.status(405).end('Method Not Allowed')
+  try{
+    const items = JSON.parse(req.body.items || '[]')
+    // Map items to Stripe line items
+    const line_items = items.map(it=> ({
+      price_data: {
+        currency: 'usd',
+        product_data: { name: it.name },
+        unit_amount: Math.round(it.price * 100)
+      },
+      quantity: it.qty || 1
+    }))
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items,
+      mode: 'payment',
+      success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/success`,
+      cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}`,
+    })
+
+    res.redirect(303, session.url)
+  }catch(err){
+    console.error(err)
+    res.status(500).json({ error: 'internal error' })
+  }
+}
+
+export const config = { api: { bodyParser: false } }
+```
+
+---
+
+### src/pages/api/webhook.js
+
+```js
+import Stripe from 'stripe'
+import { buffer } from 'micro'
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
+
+export const config = { api: { bodyParser: false } }
+
+export default async function handler(req,res){
+  const sig = req.headers['stripe-signature']
+  const buf = await buffer(req)
+  let event
+  try{
+    event = stripe.webhooks.constructEvent(buf, sig, process.env.STRIPE_WEBHOOK_SECRET)
+  }catch(err){
+    console.log('Webhook signature verification failed.', err.message)
+    return res.status(400).send(`Webhook Error: ${err.message}`)
+  }
+
+  if(event.type === 'checkout.session.completed'){
+    const session = event.data.object
+    console.log('Checkout completed:', session.id)
+    // Here you would fulfill the order, e.g. create DB record, send email
+  }
+  res.json({ received: true })
+}
+```
+
+---
+
+### src/styles/globals.css
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #__next { height: 100%; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto; background: #f8fafc }
+```
+
+---
+
+### public/images/p1.jpg, p2.jpg, p3.jpg
+
+Place your product images in `public/images/` and name them as `p1.jpg`, `p2.jpg`, `p3.jpg` which are referenced in `products.json`. You can use high-quality JPGs — recommended size 1200×1200 for product shots.
+
+---
+
+### .github/workflows/ci.yml
+
+```yaml
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - run: npm ci
+      - run: npm run build
+```
+
+---
+
+### README.md (short)
+
+```md
+# Clothing Brand Website — Full
+
+## Setup
+
+1. Copy repository locally.
+2. Rename `.env.example` to `.env.local` and fill in Stripe keys and NEXT_PUBLIC_SITE_URL.
+3. Install & run:
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:3000
+
+## Deploy
+
+- Push to GitHub and connect to Vercel for automatic deploys.
+- Configure environment variables in Vercel dashboard (STRIPE keys, NEXT_PUBLIC_SITE_URL).
+
+## Notes
+- This starter uses a JSON file as product source. For production, swap to a proper CMS or database.
+- The Stripe webhook endpoint requires a publicly reachable URL — use Vercel or use `stripe CLI` for local testing.
+- If you want, I can add NextAuth for accounts, CMS integration (Sanity/Contentful/Shopify headless), inventory management, or a custom admin panel.
+```
+
+---
+
+## What I did NOT include (by design)
+
+- Full user accounts and authentication (NextAuth) — can add if you want.
+- Production-grade order management & fulfillment. The webhook shows where to add that.
+- Real mailing list integration.
+
+---
+
+If this file set looks good I can:
+- Add NextAuth with email/password or OAuth.
+- Replace the JSON product source with a small admin CMS (Sanity) or Git-backed CMS for non-technical edits.
+- Add unit tests and E2E tests.
+
+
+*You can now copy these files into a new GitHub repository and push using the README instructions.*
